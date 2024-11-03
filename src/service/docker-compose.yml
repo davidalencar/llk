@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - ./_build:/app/_build
+    stdin_open: true
+    tty: true
+    networks:
+      default:
+        aliases:
+          - application
+
+  s1:
+    extends: app
+    hostname: llk1
+    command: elixir --sname s1 --cookie llk -S mix run --no-halt
+    environment:
+      - SERVICE_NAME=S1
+    networks:
+      - llk
+
+  s2:
+    extends: app
+    hostname: llk2
+    command: elixir --sname s2 --cookie llk -S mix run --no-halt
+    environment:
+      - SERVICE_NAME=S2
+    networks:
+      - llk
+
+  s3:
+    extends: app
+    hostname: llk3
+    command: elixir --sname s3 --cookie llk -S mix run --no-halt
+    environment:
+      - SERVICE_NAME=S3
+    networks:
+      - llk
+
+networks:
+  default:
+  llk:
+    name: llk
+    driver: bridge
