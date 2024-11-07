@@ -2,13 +2,16 @@ defmodule Service do
   use GenServer
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   @impl true
   def init(name) when is_atom(name) do
-    :global.register_name(name, self())
-    Logger.info("Sevice de pé em #{inspect(Node.self())}")
-    Process.send_after(self(), {:ping, name}, 1000)
-    {:ok, nil}
+    Tracer.with_span :init do
+      :global.register_name(name, self())
+      Logger.info("Sevice de pé em #{inspect(Node.self())}")
+      Process.send_after(self(), {:ping, name}, 1000)
+      {:ok, nil}
+    end
   end
 
   def init(_), do: {:error, :invalid_service_name}
@@ -19,27 +22,37 @@ defmodule Service do
   end
 
   @impl true
-  def handle_call(request, from, _) do
-    Logger.info(
-      "Mensagem recebida no nó #{Node.self()} com corpo #{inspect(request)} envaida por #{inspect(from)}"
-    )
+  def handle_call(request, _from, _) do
+    links = if request[:context] != nil, do: [OpenTelemetry.link(request.context)], else: []
 
-    {:reply, nil, nil}
+    IO.inspect(links)
+
+    Tracer.with_span :receive_message, %{links: links} do
+      Tracer.set_attributes([{:request, inspect(request)}])
+
+      {:reply, nil, nil}
+    end
   end
 
   @impl true
   def handle_info({:ping, my_service_name}, _) do
     Logger.info("Ping: #{Node.self()}")
 
-    :global.registered_names()
-    |> List.delete(my_service_name)
-    |> Enum.each(fn name ->
-      name
-      |> :global.whereis_name()
-      |> GenServer.call("Envaindo mensagem de #{Node.self()} - #{inspect(DateTime.utc_now())}")
-    end)
+    Tracer.with_span :send_messages do
+      :global.registered_names()
+      |> List.delete(my_service_name)
+      |> Enum.each(fn name ->
+        name
+        |> :global.whereis_name()
+        |> GenServer.call(%{
+          context: Tracer.current_span_ctx(),
+          control: Enum.random(1111..9999)
+        })
+      end)
 
-    Process.send_after(self(), {:ping, my_service_name}, 1000)
+      Process.send_after(self(), {:ping, my_service_name}, 1000)
+    end
+
     {:noreply, nil}
   end
 end
